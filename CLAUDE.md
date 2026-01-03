@@ -14,30 +14,40 @@ kubectl create namespace social-media
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                     social-media namespace                   │
-│                                                             │
-│  ┌─────────┐     ┌─────────┐     ┌─────────────────────┐   │
-│  │ Ingress │────▶│  core   │────▶│ auth    │  social   │   │
-│  │ (nginx) │     │  :3000  │     │ :3001   │  :3002    │   │
-│  └─────────┘     └─────────┘     └─────────────────────┘   │
-│                        │                    │               │
-│                        ▼                    ▼               │
-│                  ┌──────────┐         ┌──────────┐         │
-│                  │ backend  │────────▶│ postgres │         │
-│                  │  :8080   │         │  :5432   │         │
-│                  └──────────┘         └──────────┘         │
-└─────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────────────┐
+│                        social-media namespace                          │
+│                                                                       │
+│  ┌─────────┐     ┌─────────┐     ┌─────────────────────┐             │
+│  │ Ingress │────▶│  core   │────▶│ auth    │  social   │             │
+│  │ (nginx) │     │  :3000  │     │ :3001   │  :3002    │             │
+│  └─────────┘     └─────────┘     └─────────────────────┘             │
+│                        │                    │                         │
+│                        ▼                    ▼                         │
+│  ┌──────────────┐  ┌──────────┐      ┌──────────┐                    │
+│  │   Keycloak   │◀─│ backend  │─────▶│ postgres │                    │
+│  │    :8080     │  │  :8080   │      │  :5432   │                    │
+│  └──────┬───────┘  └──────────┘      └──────────┘                    │
+│         │                                                             │
+│         ▼                                                             │
+│  ┌──────────────┐                                                    │
+│  │  Keycloak    │                                                    │
+│  │  PostgreSQL  │                                                    │
+│  │    :5432     │                                                    │
+│  └──────────────┘                                                    │
+└───────────────────────────────────────────────────────────────────────┘
 ```
 
 ## Manifest Files
 
 | File | Description |
 |------|-------------|
-| `postgres.yaml` | PostgreSQL database deployment |
+| `postgres.yaml` | PostgreSQL database deployment (app data) |
 | `backend.yaml` | Spring Boot backend deployment |
 | `frontend.yaml` | Next.js micro-frontends (core, auth, social) |
 | `ingress.yaml` | NGINX Ingress routing rules |
+| `keycloak-postgres.yaml` | PostgreSQL for Keycloak (identity data) |
+| `keycloak.yaml` | Keycloak identity server |
+| `docs/KEYCLOAK_SETUP.md` | Keycloak kurulum ve konfigürasyon rehberi |
 
 ## postgres.yaml
 
@@ -109,27 +119,63 @@ Host: social-media.local
 /          → core:3000       # Default to shell
 ```
 
+## Keycloak (Identity & Access Management)
+
+### keycloak-postgres.yaml
+- **Secret**: `keycloak-db-secret` - Database credentials
+- **PersistentVolumeClaim**: `keycloak-postgres-pvc` - 5Gi persistent storage
+- **Deployment**: `keycloak-postgres` - Dedicated PostgreSQL for Keycloak
+- **Service**: `keycloak-postgres` - ClusterIP on port 5432
+
+### keycloak.yaml
+- **Secret**: `keycloak-secret` - Admin credentials
+- **ConfigMap**: `keycloak-config` - Keycloak configuration
+- **Deployment**: `keycloak` - Keycloak 24.0
+- **Service**: `keycloak` - ClusterIP on port 8080
+
+### Features
+- User authentication (OIDC/OAuth2)
+- Service-to-service auth (Client Credentials)
+- Role-based access control
+- Social login ready
+- MFA support
+
+### Port Forward
+```bash
+kubectl port-forward svc/keycloak 8180:8080 -n social-media
+# Admin Console: http://localhost:8180
+# Credentials: admin / admin-password
+```
+
+---
+
 ## Deployment Order
 
 ```bash
 # 1. Create namespace
 kubectl create namespace social-media
 
-# 2. Deploy database first (dependencies)
+# 2. Deploy databases first (dependencies)
 kubectl apply -f postgres.yaml
+kubectl apply -f keycloak-postgres.yaml
 kubectl wait --for=condition=ready pod -l app=postgres -n social-media
+kubectl wait --for=condition=ready pod -l app=keycloak-postgres -n social-media
 
-# 3. Deploy backend
+# 3. Deploy Keycloak
+kubectl apply -f keycloak.yaml
+kubectl wait --for=condition=ready pod -l app=keycloak -n social-media --timeout=300s
+
+# 4. Deploy backend
 kubectl apply -f backend.yaml
 kubectl wait --for=condition=ready pod -l app=backend -n social-media
 
-# 4. Deploy frontend apps
+# 5. Deploy frontend apps
 kubectl apply -f frontend.yaml
 kubectl wait --for=condition=ready pod -l app=core -n social-media
 kubectl wait --for=condition=ready pod -l app=auth -n social-media
 kubectl wait --for=condition=ready pod -l app=social -n social-media
 
-# 5. Deploy ingress
+# 6. Deploy ingress
 kubectl apply -f ingress.yaml
 ```
 
@@ -141,6 +187,7 @@ kubectl port-forward svc/core 3000:3000 -n social-media &
 kubectl port-forward svc/auth 3001:3001 -n social-media &
 kubectl port-forward svc/social 3002:3002 -n social-media &
 kubectl port-forward svc/backend 8080:8080 -n social-media &
+kubectl port-forward svc/keycloak 8180:8080 -n social-media &
 ```
 
 ## Minikube Setup

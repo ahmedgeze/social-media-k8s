@@ -1,0 +1,134 @@
+# Keycloak Identity and Access Management
+# Used for: User authentication, Service-to-service auth (OAuth2/OIDC)
+# Admin Console: http://localhost:8180 (via port-forward)
+
+apiVersion: v1
+kind: Secret
+metadata:
+  name: keycloak-secret
+  namespace: social-media
+type: Opaque
+stringData:
+  KEYCLOAK_ADMIN: admin
+  KEYCLOAK_ADMIN_PASSWORD: admin-password
+  # Database connection
+  KC_DB_USERNAME: keycloak
+  KC_DB_PASSWORD: keycloak-db-password
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: keycloak-config
+  namespace: social-media
+data:
+  # Database
+  KC_DB: postgres
+  KC_DB_URL: jdbc:postgresql://keycloak-postgres:5432/keycloak
+  # HTTP settings
+  KC_HTTP_ENABLED: "true"
+  KC_HTTP_PORT: "8080"
+  KC_HOSTNAME_STRICT: "false"
+  KC_HOSTNAME_STRICT_HTTPS: "false"
+  # Proxy settings (for K8s ingress/load balancer)
+  KC_PROXY: edge
+  # Health and metrics
+  KC_HEALTH_ENABLED: "true"
+  KC_METRICS_ENABLED: "true"
+  # Cache (standalone mode for single replica)
+  KC_CACHE: local
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: keycloak
+  namespace: social-media
+  labels:
+    app: keycloak
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: keycloak
+  template:
+    metadata:
+      labels:
+        app: keycloak
+    spec:
+      containers:
+        - name: keycloak
+          image: quay.io/keycloak/keycloak:24.0
+          args:
+            - start
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: keycloak-config
+            - secretRef:
+                name: keycloak-secret
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "1000m"
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: 8080
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: 8080
+            initialDelaySeconds: 120
+            periodSeconds: 30
+            timeoutSeconds: 5
+          startupProbe:
+            httpGet:
+              path: /health/started
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: keycloak
+  namespace: social-media
+spec:
+  selector:
+    app: keycloak
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+  type: ClusterIP
+---
+# Optional: Ingress for Keycloak
+# Uncomment if using ingress controller
+# apiVersion: networking.k8s.io/v1
+# kind: Ingress
+# metadata:
+#   name: keycloak-ingress
+#   namespace: social-media
+#   annotations:
+#     nginx.ingress.kubernetes.io/proxy-buffer-size: "128k"
+# spec:
+#   ingressClassName: nginx
+#   rules:
+#     - host: keycloak.social-media.local
+#       http:
+#         paths:
+#           - path: /
+#             pathType: Prefix
+#             backend:
+#               service:
+#                 name: keycloak
+#                 port:
+#                   number: 8080
