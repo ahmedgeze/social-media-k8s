@@ -48,6 +48,8 @@ kubectl create namespace social-media
 | `keycloak-postgres.yaml` | PostgreSQL for Keycloak (identity data) |
 | `keycloak.yaml` | Keycloak identity server |
 | `docs/KEYCLOAK_SETUP.md` | Keycloak kurulum ve konfigürasyon rehberi |
+| `docs/KEYCLOAK_CONFIG.md` | Keycloak konfigürasyon referansı (clients, roles, users) |
+| `scripts/configure-keycloak.sh` | Otomatik Keycloak konfigürasyon scripti |
 
 ## postgres.yaml
 
@@ -121,31 +123,81 @@ Host: social-media.local
 
 ## Keycloak (Identity & Access Management)
 
-### keycloak-postgres.yaml
+### Kubernetes Resources
+
+**keycloak-postgres.yaml:**
 - **Secret**: `keycloak-db-secret` - Database credentials
 - **PersistentVolumeClaim**: `keycloak-postgres-pvc` - 5Gi persistent storage
 - **Deployment**: `keycloak-postgres` - Dedicated PostgreSQL for Keycloak
 - **Service**: `keycloak-postgres` - ClusterIP on port 5432
 
-### keycloak.yaml
+**keycloak.yaml:**
 - **Secret**: `keycloak-secret` - Admin credentials
 - **ConfigMap**: `keycloak-config` - Keycloak configuration
 - **Deployment**: `keycloak` - Keycloak 24.0
 - **Service**: `keycloak` - ClusterIP on port 8080
 
-### Features
-- User authentication (OIDC/OAuth2)
-- Service-to-service auth (Client Credentials)
-- Role-based access control
-- Social login ready
-- MFA support
+### Realm Configuration
 
-### Port Forward
+**Realm**: `social-media`
+
+| Client | Type | Flow | Kullanım |
+|--------|------|------|----------|
+| `social-media-frontend` | Public | Authorization Code + PKCE | UI Authentication |
+| `social-media-backend` | Confidential | Direct Access, Service Account | API Resource Server |
+| `social-media-service` | Confidential | Client Credentials | Service-to-Service |
+
+**Roles:**
+| Role | Description |
+|------|-------------|
+| `user` | Default - create/edit/delete own content |
+| `moderator` | Delete any post/comment |
+| `admin` | Full access |
+
+**Test Users:**
+| Username | Password | Role |
+|----------|----------|------|
+| testuser | test123 | user |
+| moderator | mod123 | moderator |
+| adminuser | admin123 | admin |
+
+### Client Secrets
+
 ```bash
-kubectl port-forward svc/keycloak 8180:8080 -n social-media
-# Admin Console: http://localhost:8180
-# Credentials: admin / admin-password
+# Backend Client
+social-media-backend: nQCIaPfA1xCdm6MKJ9FORh5KGC0nLrwa
+
+# Service Client (machine-to-machine)
+social-media-service: 1nzswpyIFadAKnlmAMPcMEtpGSKQxBNk
 ```
+
+### Quick Start
+
+```bash
+# 1. Port forward Keycloak
+kubectl port-forward svc/keycloak 8180:8080 -n social-media
+
+# 2. Run configuration script
+./scripts/configure-keycloak.sh
+
+# 3. Test login
+curl -X POST "http://localhost:8180/realms/social-media/protocol/openid-connect/token" \
+  -d "username=testuser&password=test123&grant_type=password" \
+  -d "client_id=social-media-backend&client_secret=nQCIaPfA1xCdm6MKJ9FORh5KGC0nLrwa"
+```
+
+### Endpoints
+
+| Endpoint | URL |
+|----------|-----|
+| Admin Console | http://localhost:8180/admin/social-media/console/ |
+| Token | http://localhost:8180/realms/social-media/protocol/openid-connect/token |
+| JWKS | http://localhost:8180/realms/social-media/protocol/openid-connect/certs |
+
+### Documentation
+
+- `docs/KEYCLOAK_SETUP.md` - Detaylı kurulum rehberi
+- `docs/KEYCLOAK_CONFIG.md` - Client, role, user konfigürasyonu
 
 ---
 
@@ -165,17 +217,23 @@ kubectl wait --for=condition=ready pod -l app=keycloak-postgres -n social-media
 kubectl apply -f keycloak.yaml
 kubectl wait --for=condition=ready pod -l app=keycloak -n social-media --timeout=300s
 
-# 4. Deploy backend
+# 4. Configure Keycloak (realm, clients, roles, users)
+kubectl port-forward svc/keycloak 8180:8080 -n social-media &
+sleep 5
+./scripts/configure-keycloak.sh
+pkill -f "kubectl port-forward.*keycloak"
+
+# 5. Deploy backend
 kubectl apply -f backend.yaml
 kubectl wait --for=condition=ready pod -l app=backend -n social-media
 
-# 5. Deploy frontend apps
+# 6. Deploy frontend apps
 kubectl apply -f frontend.yaml
 kubectl wait --for=condition=ready pod -l app=core -n social-media
 kubectl wait --for=condition=ready pod -l app=auth -n social-media
 kubectl wait --for=condition=ready pod -l app=social -n social-media
 
-# 6. Deploy ingress
+# 7. Deploy ingress
 kubectl apply -f ingress.yaml
 ```
 
