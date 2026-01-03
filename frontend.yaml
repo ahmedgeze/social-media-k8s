@@ -6,6 +6,8 @@ metadata:
   namespace: social-media
 data:
   NODE_ENV: "production"
+  AUTH_SERVICE_URL: "http://auth:3001"
+  SOCIAL_SERVICE_URL: "http://social:3002"
 ---
 apiVersion: apps/v1
 kind: Deployment
