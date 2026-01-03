@@ -14,31 +14,37 @@ kubectl create namespace social-media
 ## Architecture
 
 ```
-┌───────────────────────────────────────────────────────────────────────┐
-│                        social-media namespace                          │
-│                                                                       │
-│  ┌─────────┐     ┌─────────┐     ┌─────────────────────┐             │
-│  │ Ingress │────▶│  core   │────▶│ auth    │  social   │             │
-│  │ (nginx) │     │  :3000  │     │ :3001   │  :3002    │             │
-│  └─────────┘     └─────────┘     └─────────────────────┘             │
-│                        │                    │                         │
-│                        ▼                    ▼                         │
-│  ┌──────────────┐  ┌──────────┐      ┌──────────┐                    │
-│  │   Keycloak   │◀─│ backend  │─────▶│ postgres │                    │
-│  │    :8080     │  │  :8080   │      │  :5432   │                    │
-│  └──────┬───────┘  └──────────┘      └──────────┘                    │
-│         │                                                             │
-│         ▼                                                             │
-│  ┌──────────────┐                                                    │
-│  │  Keycloak    │                                                    │
-│  │  PostgreSQL  │                                                    │
-│  │    :5432     │                                                    │
-│  └──────────────┘                                                    │
-└───────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                              social-media namespace                              │
+│                                                                                  │
+│  ┌─────────────┐     ┌─────────────────────────────────────────────────────┐    │
+│  │   Ingress   │────▶│  core:3000  │  auth:3001  │  social:3002            │    │
+│  │   (nginx)   │     │  (Shell)    │  (Auth UI)  │  (Social UI)            │    │
+│  └─────────────┘     └─────────────────────────────────────────────────────┘    │
+│         │                              │                                         │
+│         ▼                              ▼                                         │
+│  ┌─────────────┐     ┌─────────────────────────────────────────────────────┐    │
+│  │ API Gateway │────▶│ user-service:8081 │ social-service:8082             │    │
+│  │   :8080     │     │     (MongoDB)     │      (MongoDB)                  │    │
+│  └─────────────┘     └─────────────────────────────────────────────────────┘    │
+│         │                              │                                         │
+│         ▼                              ▼                                         │
+│  ┌─────────────┐     ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐    │
+│  │  Discovery  │     │ Keycloak │  │ Postgres │  │ MongoDB  │  │  Redis   │    │
+│  │  (Eureka)   │     │  :8080   │  │  :5432   │  │  :27017  │  │  :6379   │    │
+│  │   :8761     │     └────┬─────┘  └──────────┘  └──────────┘  └──────────┘    │
+│  └─────────────┘          │                                                      │
+│                           ▼                                                      │
+│  ┌─────────────┐     ┌──────────┐  ┌──────────┐  ┌──────────┐                   │
+│  │  Kafka UI   │────▶│  Kafka   │  │  Vault   │  │ Keycloak │                   │
+│  │   :8080     │     │  :9092   │  │  :8200   │  │ Postgres │                   │
+│  └─────────────┘     └──────────┘  └──────────┘  └──────────┘                   │
+└─────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ## Manifest Files
 
+### Root Manifests
 | File | Description |
 |------|-------------|
 | `postgres.yaml` | PostgreSQL database deployment (app data) |
@@ -47,6 +53,27 @@ kubectl create namespace social-media
 | `ingress.yaml` | NGINX Ingress routing rules |
 | `keycloak-postgres.yaml` | PostgreSQL for Keycloak (identity data) |
 | `keycloak.yaml` | Keycloak identity server |
+
+### Backend Infrastructure (`backend/infrastructure/`)
+| File | Description |
+|------|-------------|
+| `mongodb.yaml` | MongoDB for microservices |
+| `redis.yaml` | Redis cache |
+| `kafka.yaml` | Apache Kafka message broker |
+| `kafka-ui.yaml` | Kafka UI for monitoring topics/messages |
+| `vault-values.yaml` | HashiCorp Vault Helm values |
+
+### Backend Services (`backend/services/`)
+| File | Description |
+|------|-------------|
+| `discovery-server.yaml` | Eureka service discovery |
+| `api-gateway.yaml` | Spring Cloud Gateway |
+| `user-service.yaml` | User microservice |
+| `social-service.yaml` | Social features microservice |
+
+### Documentation
+| File | Description |
+|------|-------------|
 | `docs/KEYCLOAK_SETUP.md` | Keycloak kurulum ve konfigürasyon rehberi |
 | `docs/KEYCLOAK_CONFIG.md` | Keycloak konfigürasyon referansı (clients, roles, users) |
 | `scripts/configure-keycloak.sh` | Otomatik Keycloak konfigürasyon scripti |
@@ -237,15 +264,219 @@ kubectl wait --for=condition=ready pod -l app=social -n social-media
 kubectl apply -f ingress.yaml
 ```
 
+---
+
+## Kafka & Kafka UI
+
+### Kafka (Message Broker)
+- **Deployment**: `kafka` - Apache Kafka 3.7.0 (KRaft mode, no Zookeeper)
+- **Service**: `kafka` - ClusterIP on port 9092
+
+### Kafka UI
+- **Deployment**: `kafka-ui` - Provectus Kafka UI
+- **Service**: `kafka-ui` - ClusterIP on port 8080
+
+### Quick Start
+```bash
+# Access Kafka UI
+kubectl port-forward svc/kafka-ui 9000:8080 -n social-media
+
+# Open browser: http://localhost:9000
+```
+
+### Features
+- Topic management (create, delete, view messages)
+- Consumer group monitoring
+- Broker metrics
+- Message production/consumption
+
+---
+
+## HashiCorp Vault (Secret Management)
+
+### Overview
+HashiCorp Vault kullanarak tüm secret'lar merkezi olarak yönetilir. Vault, Helm ile kurulmuştur ve Kubernetes auth method'u yapılandırılmıştır.
+
+### Components
+- **vault-0**: Vault server (dev mode)
+- **vault-agent-injector**: Sidecar injection for pods
+
+### Stored Secrets
+| Path | Description |
+|------|-------------|
+| `secret/social-media/postgres` | PostgreSQL credentials |
+| `secret/social-media/keycloak-postgres` | Keycloak DB credentials |
+| `secret/social-media/keycloak` | Keycloak admin credentials |
+| `secret/social-media/oauth2-clients` | OAuth2 client secrets |
+| `secret/social-media/mongodb` | MongoDB connection |
+| `secret/social-media/redis` | Redis connection |
+
+### Quick Start
+```bash
+# Access Vault UI
+kubectl port-forward svc/vault 8200:8200 -n social-media
+
+# Open browser: http://localhost:8200
+# Token: root (dev mode)
+
+# CLI access
+kubectl exec -n social-media vault-0 -- vault kv get secret/social-media/postgres
+```
+
+### Reading Secrets from Pods
+```yaml
+# Pod annotation for Vault Agent injection
+annotations:
+  vault.hashicorp.com/agent-inject: "true"
+  vault.hashicorp.com/role: "social-media-role"
+  vault.hashicorp.com/agent-inject-secret-db: "secret/data/social-media/postgres"
+```
+
+### Vault Commands
+```bash
+# List all secrets
+kubectl exec -n social-media vault-0 -- vault kv list secret/social-media/
+
+# Get a secret
+kubectl exec -n social-media vault-0 -- vault kv get secret/social-media/postgres
+
+# Update a secret
+kubectl exec -n social-media vault-0 -- vault kv put secret/social-media/postgres \
+  username="postgres" password="new-password" database="socialmedia"
+```
+
+---
+
+## Observability Stack
+
+Full observability stack Helm ile kurulmuştur:
+
+### Components
+
+| Component | Purpose | Port | Helm Chart |
+|-----------|---------|------|------------|
+| **Prometheus** | Metrics collection | 9090 | prometheus-community/prometheus |
+| **Grafana** | Visualization & Dashboards | 3000 | grafana/grafana |
+| **Loki** | Log aggregation | 3100 | grafana/loki-stack |
+| **Promtail** | Log shipping (DaemonSet) | - | grafana/loki-stack |
+| **Tempo** | Distributed tracing | 3100 | grafana/tempo |
+
+### Quick Start
+
+```bash
+# Grafana UI (Dashboards, Logs, Traces)
+kubectl port-forward svc/grafana 3333:3000 -n social-media
+# http://localhost:3333
+# Username: admin / Password: admin123
+
+# Prometheus UI (Metrics queries)
+kubectl port-forward svc/prometheus-server 9090:80 -n social-media
+# http://localhost:9090
+```
+
+### Grafana Datasources (Pre-configured)
+
+| Datasource | Type | URL | Default |
+|------------|------|-----|---------|
+| Prometheus | prometheus | http://prometheus-server:80 | Yes |
+| Loki | loki | http://loki:3100 | No |
+| Tempo | tempo | http://tempo:3100 | No |
+
+### Pre-installed Dashboards
+
+- **Spring Boot 2.1 Statistics** (ID: 12900)
+- **Kubernetes Cluster** (ID: 7249)
+- **JVM Micrometer** (ID: 4701)
+
+### Tracing Integration
+
+Tempo, Loki ile entegre edilmiştir. Log'lardan trace'lere, trace'lerden log'lara geçiş yapılabilir:
+- Log'larda `traceId` fieldı varsa Tempo'ya link oluşturulur
+- Tempo'da trace detayından ilgili log'lara geçiş yapılabilir
+
+### Spring Boot Metrics Configuration
+
+Uygulamaların Prometheus metriklerini expose etmesi için:
+
+```yaml
+# application.yml
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+```
+
+Pod annotation'ları (otomatik scraping için):
+```yaml
+annotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "8080"
+  prometheus.io/path: "/actuator/prometheus"
+```
+
+### Helm Values Files
+
+| File | Description |
+|------|-------------|
+| `backend/observability/prometheus-values.yaml` | Prometheus configuration |
+| `backend/observability/grafana-values.yaml` | Grafana datasources & dashboards |
+| `backend/observability/loki-values.yaml` | Loki log aggregation config |
+| `backend/observability/tempo-values.yaml` | Tempo tracing config |
+
+### Useful Queries
+
+**Prometheus (Metrics):**
+```promql
+# HTTP request rate by service
+rate(http_server_requests_seconds_count[5m])
+
+# JVM memory usage
+jvm_memory_used_bytes{area="heap"}
+
+# Pod CPU usage
+rate(container_cpu_usage_seconds_total{namespace="social-media"}[5m])
+```
+
+**Loki (Logs):**
+```logql
+# All logs from backend
+{app="backend"}
+
+# Error logs
+{namespace="social-media"} |= "ERROR"
+
+# Logs with specific traceId
+{app="api-gateway"} | json | traceId="abc123"
+```
+
+---
+
 ## Port Forwarding (Local Access)
 
 ```bash
-# All services
+# Frontend
 kubectl port-forward svc/core 3000:3000 -n social-media &
 kubectl port-forward svc/auth 3001:3001 -n social-media &
 kubectl port-forward svc/social 3002:3002 -n social-media &
+
+# Backend Services
 kubectl port-forward svc/backend 8080:8080 -n social-media &
+kubectl port-forward svc/api-gateway 8888:8080 -n social-media &
+kubectl port-forward svc/discovery-server 8761:8761 -n social-media &
+
+# Infrastructure
 kubectl port-forward svc/keycloak 8180:8080 -n social-media &
+kubectl port-forward svc/kafka-ui 9000:8080 -n social-media &
+kubectl port-forward svc/vault 8200:8200 -n social-media &
+
+# Observability
+kubectl port-forward svc/grafana 3333:3000 -n social-media &
+kubectl port-forward svc/prometheus-server 9090:80 -n social-media &
 ```
 
 ## Minikube Setup
@@ -337,11 +568,17 @@ docker images | grep social-media
 
 ## Production Considerations
 
-- [ ] Use Secrets instead of ConfigMaps for passwords
+- [x] Use HashiCorp Vault for secret management
+- [x] Set up monitoring (Prometheus/Grafana)
+- [x] Configure log aggregation (Loki/Promtail)
+- [x] Set up distributed tracing (Tempo)
+- [ ] Switch Vault from dev mode to HA mode with persistent storage
+- [ ] Enable persistent storage for Prometheus, Loki, Tempo
 - [ ] Add resource quotas and limit ranges
 - [ ] Configure horizontal pod autoscaling (HPA)
-- [ ] Set up monitoring (Prometheus/Grafana)
-- [ ] Configure log aggregation (ELK/Loki)
 - [ ] Use external PostgreSQL (RDS, Cloud SQL)
 - [ ] Set up TLS certificates (cert-manager)
 - [ ] Configure network policies
+- [ ] Enable Vault audit logging
+- [ ] Configure Vault policies per service
+- [ ] Set up alerting rules in Prometheus/Alertmanager

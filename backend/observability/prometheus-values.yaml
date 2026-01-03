@@ -1,0 +1,43 @@
+# Prometheus Helm Values for Minikube
+# Lightweight configuration
+
+server:
+  persistentVolume:
+    enabled: false
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "100m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+  service:
+    type: ClusterIP
+
+alertmanager:
+  enabled: false
+
+kube-state-metrics:
+  enabled: true
+
+prometheus-node-exporter:
+  enabled: true
+
+prometheus-pushgateway:
+  enabled: false
+
+extraScrapeConfigs: |
+  - job_name: 'spring-boot-actuator'
+    metrics_path: '/actuator/prometheus'
+    kubernetes_sd_configs:
+      - role: pod
+        namespaces:
+          names:
+            - social-media
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_pod_label_app]
+        action: keep
+        regex: (backend|api-gateway|user-service|social-service|discovery-server)
+      - source_labels: [__meta_kubernetes_pod_container_port_number]
+        action: keep
+        regex: (8080|8081|8082|8761)
