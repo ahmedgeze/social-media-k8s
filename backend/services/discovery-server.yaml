@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
         - name: discovery-server
-          image: social-media/discovery-server:latest
+          image: discovery-server:latest
           imagePullPolicy: Never
           ports:
             - containerPort: 8761

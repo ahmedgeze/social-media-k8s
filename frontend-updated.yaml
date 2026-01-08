@@ -1,3 +1,5 @@
+# Updated Frontend with real Next.js images
+
 # Core App (Shell - Main entry point)
 apiVersion: v1
 kind: ConfigMap
@@ -26,8 +28,8 @@ spec:
     spec:
       containers:
         - name: core
-          image: core:latest
-          imagePullPolicy: Never
+          image: social-media-core:latest
+          imagePullPolicy: Never  # Use local image
           ports:
             - containerPort: 3000
           envFrom:
@@ -35,22 +37,22 @@ spec:
                 name: core-config
           resources:
             requests:
-              memory: "128Mi"
-              cpu: "50m"
+              memory: "512Mi"
+              cpu: "250m"
             limits:
-              memory: "256Mi"
-              cpu: "200m"
+              memory: "1Gi"
+              cpu: "500m"
           livenessProbe:
             httpGet:
               path: /
               port: 3000
-            initialDelaySeconds: 15
+            initialDelaySeconds: 30
             periodSeconds: 10
           readinessProbe:
             httpGet:
               path: /
               port: 3000
-            initialDelaySeconds: 5
+            initialDelaySeconds: 15
             periodSeconds: 5
 ---
 apiVersion: v1
@@ -74,7 +76,8 @@ metadata:
   namespace: social-media
 data:
   NODE_ENV: "production"
-  NEXT_PUBLIC_API_URL: "http://backend:8080"
+  NEXT_PUBLIC_API_URL: "http://api-gateway:8080"
+  KEYCLOAK_URL: "http://keycloak:8080"
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -93,8 +96,8 @@ spec:
     spec:
       containers:
         - name: auth
-          image: auth:latest
-          imagePullPolicy: Never
+          image: social-media-auth:latest
+          imagePullPolicy: Never  # Use local image
           ports:
             - containerPort: 3001
           envFrom:
@@ -102,22 +105,22 @@ spec:
                 name: auth-config
           resources:
             requests:
-              memory: "128Mi"
-              cpu: "50m"
+              memory: "512Mi"
+              cpu: "250m"
             limits:
-              memory: "256Mi"
-              cpu: "200m"
+              memory: "1Gi"
+              cpu: "500m"
           livenessProbe:
             httpGet:
               path: /login
               port: 3001
-            initialDelaySeconds: 15
+            initialDelaySeconds: 30
             periodSeconds: 10
           readinessProbe:
             httpGet:
               path: /login
               port: 3001
-            initialDelaySeconds: 5
+            initialDelaySeconds: 15
             periodSeconds: 5
 ---
 apiVersion: v1
@@ -141,7 +144,7 @@ metadata:
   namespace: social-media
 data:
   NODE_ENV: "production"
-  NEXT_PUBLIC_API_URL: "http://backend:8080"
+  NEXT_PUBLIC_API_URL: "http://api-gateway:8080"
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -160,8 +163,8 @@ spec:
     spec:
       containers:
         - name: social
-          image: social:latest
-          imagePullPolicy: Never
+          image: social-media-social:latest
+          imagePullPolicy: Never  # Use local image
           ports:
             - containerPort: 3002
           envFrom:
@@ -169,22 +172,22 @@ spec:
                 name: social-config
           resources:
             requests:
-              memory: "128Mi"
-              cpu: "50m"
+              memory: "512Mi"
+              cpu: "250m"
             limits:
-              memory: "256Mi"
-              cpu: "200m"
+              memory: "1Gi"
+              cpu: "500m"
           livenessProbe:
             httpGet:
               path: /
               port: 3002
-            initialDelaySeconds: 15
+            initialDelaySeconds: 30
             periodSeconds: 10
           readinessProbe:
             httpGet:
               path: /
               port: 3002
-            initialDelaySeconds: 5
+            initialDelaySeconds: 15
             periodSeconds: 5
 ---
 apiVersion: v1

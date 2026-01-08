@@ -17,13 +17,19 @@ spec:
     spec:
       containers:
         - name: api-gateway
-          image: social-media/api-gateway:latest
+          image: api-gateway:latest
           imagePullPolicy: Never
           ports:
             - containerPort: 8080
           env:
             - name: SPRING_PROFILES_ACTIVE
               value: "kubernetes"
+            - name: SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI
+              value: "http://keycloak:8080/realms/social-media"
+            - name: SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK_SET_URI
+              value: "http://keycloak:8080/realms/social-media/protocol/openid-connect/certs"
+            - name: SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWKS_URI
+              value: "http://keycloak:8080/realms/social-media/protocol/openid-connect/certs"
           resources:
             requests:
               memory: "256Mi"

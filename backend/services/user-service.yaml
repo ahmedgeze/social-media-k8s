@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
         - name: user-service
-          image: social-media/user-service:latest
+          image: user-service:latest
           imagePullPolicy: Never
           ports:
             - containerPort: 8081
@@ -25,10 +25,13 @@ spec:
             - name: SPRING_PROFILES_ACTIVE
               value: "kubernetes"
             - name: KEYCLOAK_SERVICE_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: keycloak-secrets
-                  key: service-client-secret
+              value: "SpQduvfnahXaGmlCT6Iithyp1upUD1ZK"
+            - name: SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI
+              value: "http://keycloak:8080/realms/social-media"
+            - name: KEYCLOAK_AUTH_SERVER_URL
+              value: "http://keycloak:8080"
+            - name: KEYCLOAK_REALM
+              value: "social-media"
           resources:
             requests:
               memory: "256Mi"
